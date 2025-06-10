@@ -1,46 +1,63 @@
 const axios = require("axios");
 
-exports.handler = async (event) => {
-  const APP_KEY = process.env.OMIE_APP_KEY;
-  const APP_SECRET = process.env.OMIE_APP_SECRET;
+// Configuration file or environment variable handler
+const getConfig = () => ({
+  appKey: process.env.OMIE_APP_KEY,
+  appSecret: process.env.OMIE_APP_SECRET,
+  apiUrl: "https://app.omie.com.br/api/v1/geral/clientes/"
+});
 
-  const payload = {
-    call: "ListarClientes",
-    app_key: APP_KEY,
-    app_secret: APP_SECRET,
-    param: [
-      {
-        pagina: 1,
-        registros_por_pagina: 10,
-        apenas_importado_api: "N"
-      }
-    ]
-  };
+// Function to construct payload
+const createPayload = (page = 1, recordsPerPage = 10, importedApi = "N") => ({
+  call: "ListarClientes",
+  app_key: getConfig().appKey,
+  app_secret: getConfig().appSecret,
+  param: [
+    {
+      pagina: page,
+      registros_por_pagina: recordsPerPage,
+      apenas_importado_api: importedApi
+    }
+  ]
+});
 
+// Function to make API call
+const fetchClientes = async (payload) => {
   try {
-    const response = await axios.post("https://app.omie.com.br/api/v1/geral/clientes/", payload, {
+    const response = await axios.post(getConfig().apiUrl, payload, {
       headers: { "Content-Type": "application/json" }
     });
+    return response.data.clientes_cadastro || [];
+  } catch (error) {
+    console.error("Error fetching clients:", error.message);
+    throw new Error("Failed to fetch clients from Omie API");
+  }
+};
 
-    const clientes = response.data.clientes_cadastro || [];
+// Function to format response
+const formatClientes = (clientes) =>
+  clientes.map((c) => ({
+    codigo: c.codigo_cliente_omie,
+    nome: c.razao_social
+  }));
 
+// Lambda handler
+exports.handler = async (event) => {
+  const payload = createPayload();
+
+  try {
+    const clientes = await fetchClientes(payload);
     return {
       statusCode: 200,
       body: JSON.stringify({
         total: clientes.length,
-        clientes: clientes.map(c => ({
-          codigo: c.codigo_cliente_omie,
-          nome: c.razao_social
-        }))
+        clientes: formatClientes(clientes)
       })
     };
   } catch (error) {
     return {
-      statusCode: error.response?.status || 500,
-      body: JSON.stringify({
-        erro: "Erro ao acessar a API do Omie",
-        detalhes: error.response?.data || error.message
-      })
+      statusCode: 500,
+      body: JSON.stringify({ error: error.message })
     };
   }
 };
